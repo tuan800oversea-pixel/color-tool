@@ -176,9 +176,10 @@ if 'data_list' in st.session_state:
             st.download_button(
                 label="📥 下载工厂打样色块",
                 data=create_tif_chart(selected_indices, "CMYK"),
-                file_name="工厂打样色块",
+                file_name="工厂打样色块.tif",
                 mime="image/tiff",
                 use_container_width=True
             )
+
 
 
