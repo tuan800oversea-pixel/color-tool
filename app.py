@@ -8,8 +8,8 @@ import io
 import math
 
 # --- 页面配置 ---
-st.set_page_config(page_title="色彩管理工具 Pro (1x8 单行大字版)", layout="wide")
-st.title("🎨 色彩对照提取与色卡生成工具 (白底单行版)")
+st.set_page_config(page_title="色彩对照提取与色卡生成工具", layout="wide")
+st.title("🎨 色彩对照提取与色卡生成工具")
 
 # --- 颜色提取逻辑 ---
 def process_images(rgb_file, cmyk_file):
@@ -136,6 +136,7 @@ if 'data_list' in st.session_state:
     if selected_indices:
         ca, cb = st.columns(2)
         with ca:
-            st.download_button("📥 下载 RGB 校色条 (白底单行)", create_tif_chart(selected_indices, "RGB"), "RGB_Strip_White.tif", "image/tiff", use_container_width=True)
+            st.download_button("📥 下载 RGB 校色", create_tif_chart(selected_indices, "RGB"), "RGB_Strip_White.tif", "image/tiff", use_container_width=True)
         with cb:
-            st.download_button("📥 下载 CMYK 打样条 (白底单行)", create_tif_chart(selected_indices, "CMYK"), "CMYK_Strip_White.tif", "image/tiff", use_container_width=True)
+            st.download_button("📥 下载 CMYK 打样", create_tif_chart(selected_indices, "CMYK"), "CMYK_Strip_White.tif", "image/tiff", use_container_width=True)
+
