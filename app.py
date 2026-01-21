@@ -11,7 +11,7 @@ import math
 st.set_page_config(page_title="色彩管理工具 Pro", layout="wide")
 st.title("🎨 色彩对照提取与色卡生成工具")
 
-# --- 核心函数 ---
+# --- 核心提取函数 ---
 def process_images(rgb_file, cmyk_file):
     img_rgb = Image.open(rgb_file).convert('RGB')
     img_cmyk = Image.open(cmyk_file).convert('CMYK')
@@ -19,7 +19,6 @@ def process_images(rgb_file, cmyk_file):
     if img_rgb.size != img_cmyk.size:
         img_cmyk = img_cmyk.resize(img_rgb.size, Image.Resampling.NEAREST)
     
-    # 缩小尺寸以确保稳定性
     small_size = (int(img_rgb.width * 0.2), int(img_rgb.height * 0.2))
     img_rgb_s = img_rgb.resize(small_size, Image.Resampling.NEAREST)
     img_cmyk_s = img_cmyk.resize(small_size, Image.Resampling.NEAREST)
@@ -38,7 +37,6 @@ def process_images(rgb_file, cmyk_file):
         r, g, b = Counter([tuple(x) for x in arr_rgb[mask]]).most_common(1)[0][0]
         c, m, y, k = Counter([tuple(x) for x in arr_cmyk[mask]]).most_common(1)[0][0]
         
-        # 色块预览 Hex
         hex_design = '#{:02x}{:02x}{:02x}'.format(r, g, b)
         r_p = round(255 * (1-c/255) * (1-k/255))
         g_p = round(255 * (1-m/255) * (1-k/255))
@@ -55,25 +53,33 @@ def process_images(rgb_file, cmyk_file):
         })
     return results
 
+# --- 核心绘图函数（重点修复字体与标注） ---
 def create_tif_chart(selected_items, mode="RGB"):
-    # 参数设置：增加文字区域高度
-    BLOCK_PX, TEXT_H_PX, MARGIN_PX = 400, 200, 80
+    # 极大化参数：BLOCK 400, TEXT区域增加到 450 (翻倍以上)
+    BLOCK_PX, TEXT_H_PX, MARGIN_PX = 400, 450, 100
     COLUMNS = 4
     num_items = len(selected_items)
     rows = math.ceil(num_items / COLUMNS)
     canvas_w = (BLOCK_PX * COLUMNS) + (MARGIN_PX * (COLUMNS + 1))
     canvas_h = ((BLOCK_PX + TEXT_H_PX) * rows) + (MARGIN_PX * (rows + 1))
     
-    img = Image.new(mode, (canvas_w, canvas_h), (255,255,255) if mode=="RGB" else (0,0,0,0))
+    # 颜色设置：CMYK模式下，单黑文字需要 (0,0,0,255)
+    if mode == "RGB":
+        bg_color = (255, 255, 255)
+        text_color = (0, 0, 0)
+    else:
+        bg_color = (0, 0, 0, 0)
+        text_color = (0, 0, 0, 255) # K=100，确保工厂能看到
+    
+    img = Image.new(mode, (canvas_w, canvas_h), bg_color)
     draw = ImageDraw.Draw(img)
     
-    # 显著放大字体：原来40 -> 160 (提升4倍)
+    # 字体大小直接拉满到 200 (比之前又大了近一倍)
     try:
-        # 尝试寻找粗体字体
-        font = ImageFont.truetype("arialbd.ttf", 120) 
+        font = ImageFont.truetype("arialbd.ttf", 200) 
     except:
         try:
-            font = ImageFont.truetype("arial.ttf", 120)
+            font = ImageFont.truetype("arial.ttf", 200)
         except:
             font = ImageFont.load_default()
     
@@ -82,15 +88,24 @@ def create_tif_chart(selected_items, mode="RGB"):
         x = MARGIN_PX + c_pos * (BLOCK_PX + MARGIN_PX)
         y = MARGIN_PX + r_pos * (BLOCK_PX + TEXT_H_PX + MARGIN_PX)
         
-        fill = (int(item['RGB_R']), int(item['RGB_G']), int(item['RGB_B'])) if mode=="RGB" else \
-               (int(item['CMYK_C']*2.55), int(item['CMYK_M']*2.55), int(item['CMYK_Y']*2.55), int(item['CMYK_K']*2.55))
+        # 色块填充逻辑
+        if mode == "RGB":
+            fill = (int(item['RGB_R']), int(item['RGB_G']), int(item['RGB_B']))
+        else:
+            fill = (int(item['CMYK_C']*2.55), int(item['CMYK_M']*2.55), int(item['CMYK_Y']*2.55), int(item['CMYK_K']*2.55))
         
-        # 绘制色块
-        draw.rectangle([x, y, x + BLOCK_PX, y + BLOCK_PX], fill=fill, outline=0, width=6)
+        # 1. 绘制色块
+        draw.rectangle([x, y, x + BLOCK_PX, y + BLOCK_PX], fill=fill, outline=text_color, width=10)
         
-        # 绘制大号 RGB 标注
-        label = f"R:{int(item['RGB_R'])} G:{int(item['RGB_G'])} B:{int(item['RGB_B'])}"
-        draw.text((x + 5, y + BLOCK_PX + 30), label, fill=0, font=font)
+        # 2. 绘制多行标注（让数值更醒目）
+        line1 = f"R:{int(item['RGB_R'])}"
+        line2 = f"G:{int(item['RGB_G'])}"
+        line3 = f"B:{int(item['RGB_B'])}"
+        
+        # 依次向下排列，每行间隔 120 像素
+        draw.text((x, y + BLOCK_PX + 40), line1, fill=text_color, font=font)
+        draw.text((x, y + BLOCK_PX + 160), line2, fill=text_color, font=font)
+        draw.text((x, y + BLOCK_PX + 280), line3, fill=text_color, font=font)
         
     buf = io.BytesIO()
     img.save(buf, format="TIFF", compression='tiff_lzw')
@@ -107,29 +122,23 @@ if design_img and factory_img:
             st.session_state['data_list'] = process_images(design_img, factory_img)
 
 if 'data_list' in st.session_state:
-    st.subheader("🔍 色块校对与选择 (勾选色块决定是否生成)")
+    st.subheader("🔍 色块校对与选择")
     
-    # 初始化勾选状态
     if 'checks' not in st.session_state or len(st.session_state['checks']) != len(st.session_state['data_list']):
         st.session_state['checks'] = [True] * len(st.session_state['data_list'])
 
     selected_indices = []
     
-    # 重新设计的色块预览区（带勾选框）
     for i, row in enumerate(st.session_state['data_list']):
-        col_chk, col_txt, col_pre1, col_pre2 = st.columns([0.5, 1.5, 3, 3])
-        
+        col_chk, col_txt, col_pre1, col_pre2 = st.columns([1, 2, 4, 4])
         with col_chk:
-            st.session_state['checks'][i] = st.checkbox(f"生成", value=st.session_state['checks'][i], key=f"chk_{i}", label_visibility="collapsed")
-        
+            st.session_state['checks'][i] = st.checkbox(f"生成", value=st.session_state['checks'][i], key=f"chk_{i}")
         with col_txt:
-            st.write(f"颜色 {i+1} ({row['占比']})")
-        
+            st.write(f"颜色 {i+1}\n({row['占比']})")
         with col_pre1:
-            st.markdown(f'<div style="background-color:{row["设计图色块"]}; height:50px; border:2px solid #000; text-align:center; line-height:50px; color:white; font-weight:bold; text-shadow:1px 1px 2px #000;">设计图色</div>', unsafe_allow_html=True)
-            
+            st.markdown(f'<div style="background-color:{row["设计图色块"]}; height:60px; border:2px solid #000; text-align:center; line-height:60px; color:white; font-weight:bold; text-shadow:1px 1px 2px #000;">设计图色</div>', unsafe_allow_html=True)
         with col_pre2:
-            st.markdown(f'<div style="background-color:{row["工厂稿色块"]}; height:50px; border:2px solid #000; text-align:center; line-height:50px; color:white; font-weight:bold; text-shadow:1px 1px 2px #000;">工厂预览图</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="background-color:{row["工厂稿色块"]}; height:60px; border:2px solid #000; text-align:center; line-height:60px; color:white; font-weight:bold; text-shadow:1px 1px 2px #000;">工厂预览</div>', unsafe_allow_html=True)
         
         if st.session_state['checks'][i]:
             selected_indices.append(row)
@@ -137,23 +146,20 @@ if 'data_list' in st.session_state:
     st.divider()
     
     if selected_indices:
-        st.success(f"已选中 {len(selected_indices)} 个色块，字体已显著放大，请下载核对：")
         ca, cb = st.columns(2)
         with ca:
             st.download_button(
-                "📥 设计师核对校色用 (RGB 模式)", 
+                "📥 设计师核对校色用 (RGB 模式 - 巨大字体版)", 
                 create_tif_chart(selected_indices, "RGB"), 
-                "校色_RGB_放大版.tif", 
+                "设计师校色_RGB_巨大字.tif", 
                 "image/tiff", 
                 use_container_width=True
             )
         with cb:
             st.download_button(
-                "📥 工厂打样用 (CMYK 模式)", 
+                "📥 工厂打样用 (CMYK 模式 - 包含RGB标注)", 
                 create_tif_chart(selected_indices, "CMYK"), 
-                "打样_CMYK_放大版.tif", 
+                "工厂打样_CMYK_巨大字.tif", 
                 "image/tiff", 
                 use_container_width=True
             )
-    else:
-        st.warning("⚠️ 请勾选至少一个色块以生成下载文件。")
