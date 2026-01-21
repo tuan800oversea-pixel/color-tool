@@ -168,7 +168,7 @@ if 'data_list' in st.session_state:
             st.download_button(
                 label="📥 下载设计师校色块",
                 data=create_tif_chart(selected_indices, "RGB"),
-                file_name="Check_RGB_Strip.tif",
+                file_name="设计师校色块.tif",
                 mime="image/tiff",
                 use_container_width=True
             )
@@ -176,8 +176,9 @@ if 'data_list' in st.session_state:
             st.download_button(
                 label="📥 下载工厂打样色块",
                 data=create_tif_chart(selected_indices, "CMYK"),
-                file_name="Print_CMYK_Strip.tif",
+                file_name="工厂打样色块",
                 mime="image/tiff",
                 use_container_width=True
             )
+
 
