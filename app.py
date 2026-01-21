@@ -38,16 +38,14 @@ def process_images(rgb_file, cmyk_file):
         r, g, b = Counter([tuple(x) for x in arr_rgb[mask]]).most_common(1)[0][0]
         c, m, y, k = Counter([tuple(x) for x in arr_cmyk[mask]]).most_common(1)[0][0]
         
+        # 色块预览 Hex
         hex_design = '#{:02x}{:02x}{:02x}'.format(r, g, b)
-        
-        # 近似 CMYK 预览色
         r_p = round(255 * (1-c/255) * (1-k/255))
         g_p = round(255 * (1-m/255) * (1-k/255))
         b_p = round(255 * (1-y/255) * (1-k/255))
         hex_factory = '#{:02x}{:02x}{:02x}'.format(r_p, g_p, b_p)
         
         results.append({
-            "打样": True,
             "占比": f"{(count / len(arr_rgb)):.1%}",
             "设计图色块": hex_design,
             "工厂稿色块": hex_factory,
@@ -57,37 +55,42 @@ def process_images(rgb_file, cmyk_file):
         })
     return results
 
-def create_tif_chart(df, mode="RGB"):
-    # 参数设置
-    BLOCK_PX, TEXT_H_PX, MARGIN_PX = 400, 150, 60
+def create_tif_chart(selected_items, mode="RGB"):
+    # 参数设置：增加文字区域高度
+    BLOCK_PX, TEXT_H_PX, MARGIN_PX = 400, 200, 80
     COLUMNS = 4
-    rows = math.ceil(len(df) / COLUMNS)
+    num_items = len(selected_items)
+    rows = math.ceil(num_items / COLUMNS)
     canvas_w = (BLOCK_PX * COLUMNS) + (MARGIN_PX * (COLUMNS + 1))
     canvas_h = ((BLOCK_PX + TEXT_H_PX) * rows) + (MARGIN_PX * (rows + 1))
     
     img = Image.new(mode, (canvas_w, canvas_h), (255,255,255) if mode=="RGB" else (0,0,0,0))
     draw = ImageDraw.Draw(img)
     
-    # 尝试加载字体，如果失败使用默认
+    # 显著放大字体：原来40 -> 160 (提升4倍)
     try:
-        font = ImageFont.truetype("arial.ttf", 40)
+        # 尝试寻找粗体字体
+        font = ImageFont.truetype("arialbd.ttf", 120) 
     except:
-        font = ImageFont.load_default()
+        try:
+            font = ImageFont.truetype("arial.ttf", 120)
+        except:
+            font = ImageFont.load_default()
     
-    for i, (_, row) in enumerate(df.iterrows()):
+    for i, item in enumerate(selected_items):
         r_pos, c_pos = i // COLUMNS, i % COLUMNS
         x = MARGIN_PX + c_pos * (BLOCK_PX + MARGIN_PX)
         y = MARGIN_PX + r_pos * (BLOCK_PX + TEXT_H_PX + MARGIN_PX)
         
-        fill = (int(row['RGB_R']), int(row['RGB_G']), int(row['RGB_B'])) if mode=="RGB" else \
-               (int(row['CMYK_C']*2.55), int(row['CMYK_M']*2.55), int(row['CMYK_Y']*2.55), int(row['CMYK_K']*2.55))
+        fill = (int(item['RGB_R']), int(item['RGB_G']), int(item['RGB_B'])) if mode=="RGB" else \
+               (int(item['CMYK_C']*2.55), int(item['CMYK_M']*2.55), int(item['CMYK_Y']*2.55), int(item['CMYK_K']*2.55))
         
         # 绘制色块
-        draw.rectangle([x, y, x + BLOCK_PX, y + BLOCK_PX], fill=fill, outline=0, width=4)
+        draw.rectangle([x, y, x + BLOCK_PX, y + BLOCK_PX], fill=fill, outline=0, width=6)
         
-        # 强制标注 RGB 值文本
-        label = f"R:{int(row['RGB_R'])} G:{int(row['RGB_G'])} B:{int(row['RGB_B'])}"
-        draw.text((x + 10, y + BLOCK_PX + 20), label, fill=0, font=font)
+        # 绘制大号 RGB 标注
+        label = f"R:{int(item['RGB_R'])} G:{int(item['RGB_G'])} B:{int(item['RGB_B'])}"
+        draw.text((x + 5, y + BLOCK_PX + 30), label, fill=0, font=font)
         
     buf = io.BytesIO()
     img.save(buf, format="TIFF", compression='tiff_lzw')
@@ -100,45 +103,57 @@ with c2: factory_img = st.file_uploader("2. 上传工厂稿 (CMYK)", type=['tif'
 
 if design_img and factory_img:
     if st.button("🚀 开始提取颜色并对比"):
-        with st.spinner("正在抓取核心颜色..."):
+        with st.spinner("处理中..."):
             st.session_state['data_list'] = process_images(design_img, factory_img)
 
 if 'data_list' in st.session_state:
-    st.subheader("💡 颜色校对表 (勾选需要打样的颜色)")
+    st.subheader("🔍 色块校对与选择 (勾选色块决定是否生成)")
     
-    df = pd.DataFrame(st.session_state['data_list'])
-    
-    # 定义预览颜色样式
-    def color_preview(val):
-        return f'background-color: {val}; color: {val};'
+    # 初始化勾选状态
+    if 'checks' not in st.session_state or len(st.session_state['checks']) != len(st.session_state['data_list']):
+        st.session_state['checks'] = [True] * len(st.session_state['data_list'])
 
-    # 使用 data_editor 配合样式预览
-    edited_df = st.data_editor(
-        df,
-        column_config={
-            "打样": st.column_config.CheckboxColumn("生成?", default=True),
-            "设计图色块": None, # 隐藏原始 Hex 列，用样式展示
-            "工厂稿色块": None,
-        },
-        hide_index=True,
-        use_container_width=True
-    )
+    selected_indices = []
     
-    # 在表格下方展示带颜色背景的预览区，解决之前预览不显示的问题
-    st.markdown("### 🔍 色块校对预览 (左侧为设计图，右侧为工厂图)")
-    for i, row in edited_df.iterrows():
-        if row["打样"]:
-            col_pre1, col_pre2, col_pre3 = st.columns([1, 2, 2])
-            with col_pre1: st.write(f"颜色 {i+1} ({row['占比']})")
-            with col_pre2: st.markdown(f'<div style="background-color:{row["设计图色块"]}; height:40px; border:1px solid #000; text-align:center; line-height:40px; color:white; text-shadow:1px 1px 2px #000;">设计图色</div>', unsafe_allow_html=True)
-            with col_pre3: st.markdown(f'<div style="background-color:{row["工厂稿色块"]}; height:40px; border:1px solid #000; text-align:center; line-height:40px; color:white; text-shadow:1px 1px 2px #000;">工厂预览</div>', unsafe_allow_html=True)
-
-    final_df = edited_df[edited_df["打样"] == True]
+    # 重新设计的色块预览区（带勾选框）
+    for i, row in enumerate(st.session_state['data_list']):
+        col_chk, col_txt, col_pre1, col_pre2 = st.columns([0.5, 1.5, 3, 3])
+        
+        with col_chk:
+            st.session_state['checks'][i] = st.checkbox(f"生成", value=st.session_state['checks'][i], key=f"chk_{i}", label_visibility="collapsed")
+        
+        with col_txt:
+            st.write(f"颜色 {i+1} ({row['占比']})")
+        
+        with col_pre1:
+            st.markdown(f'<div style="background-color:{row["设计图色块"]}; height:50px; border:2px solid #000; text-align:center; line-height:50px; color:white; font-weight:bold; text-shadow:1px 1px 2px #000;">设计图色</div>', unsafe_allow_html=True)
+            
+        with col_pre2:
+            st.markdown(f'<div style="background-color:{row["工厂稿色块"]}; height:50px; border:2px solid #000; text-align:center; line-height:50px; color:white; font-weight:bold; text-shadow:1px 1px 2px #000;">工厂预览图</div>', unsafe_allow_html=True)
+        
+        if st.session_state['checks'][i]:
+            selected_indices.append(row)
 
     st.divider()
-    if not final_df.empty:
+    
+    if selected_indices:
+        st.success(f"已选中 {len(selected_indices)} 个色块，字体已显著放大，请下载核对：")
         ca, cb = st.columns(2)
         with ca:
-            st.download_button("📥 设计师核对校色用 (RGB 模式)", create_tif_chart(final_df, "RGB"), "校色_RGB.tif", "image/tiff", use_container_width=True)
+            st.download_button(
+                "📥 设计师核对校色用 (RGB 模式)", 
+                create_tif_chart(selected_indices, "RGB"), 
+                "校色_RGB_放大版.tif", 
+                "image/tiff", 
+                use_container_width=True
+            )
         with cb:
-            st.download_button("📥 工厂打样用 (CMYK 模式)", create_tif_chart(final_df, "CMYK"), "打样_CMYK.tif", "image/tiff", use_container_width=True)
+            st.download_button(
+                "📥 工厂打样用 (CMYK 模式)", 
+                create_tif_chart(selected_indices, "CMYK"), 
+                "打样_CMYK_放大版.tif", 
+                "image/tiff", 
+                use_container_width=True
+            )
+    else:
+        st.warning("⚠️ 请勾选至少一个色块以生成下载文件。")
