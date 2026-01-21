@@ -53,33 +53,32 @@ def process_images(rgb_file, cmyk_file):
         })
     return results
 
-# --- 核心绘图函数（重点修复字体与标注） ---
+# --- 核心绘图函数 ---
 def create_tif_chart(selected_items, mode="RGB"):
-    # 极大化参数：BLOCK 400, TEXT区域增加到 450 (翻倍以上)
-    BLOCK_PX, TEXT_H_PX, MARGIN_PX = 400, 450, 100
+    # 参数设置：BLOCK 400, 文字高度 150，确保单行显示不换行
+    BLOCK_PX, TEXT_H_PX, MARGIN_PX = 400, 150, 80
     COLUMNS = 4
     num_items = len(selected_items)
     rows = math.ceil(num_items / COLUMNS)
     canvas_w = (BLOCK_PX * COLUMNS) + (MARGIN_PX * (COLUMNS + 1))
     canvas_h = ((BLOCK_PX + TEXT_H_PX) * rows) + (MARGIN_PX * (rows + 1))
     
-    # 颜色设置：CMYK模式下，单黑文字需要 (0,0,0,255)
     if mode == "RGB":
         bg_color = (255, 255, 255)
         text_color = (0, 0, 0)
     else:
-        bg_color = (0, 0, 0, 0)
-        text_color = (0, 0, 0, 255) # K=100，确保工厂能看到
+        bg_color = (0, 0, 0, 0) # CMYK 纯白背景
+        text_color = (0, 0, 0, 255) # K=100 文字
     
     img = Image.new(mode, (canvas_w, canvas_h), bg_color)
     draw = ImageDraw.Draw(img)
     
-    # 字体大小直接拉满到 200 (比之前又大了近一倍)
+    # 调整字体大小至 80 像素，确保单行 R:xxx G:xxx B:xxx 能够完美塞下且足够大
     try:
-        font = ImageFont.truetype("arialbd.ttf", 200) 
+        font = ImageFont.truetype("arialbd.ttf", 80) 
     except:
         try:
-            font = ImageFont.truetype("arial.ttf", 200)
+            font = ImageFont.truetype("arial.ttf", 80)
         except:
             font = ImageFont.load_default()
     
@@ -88,24 +87,19 @@ def create_tif_chart(selected_items, mode="RGB"):
         x = MARGIN_PX + c_pos * (BLOCK_PX + MARGIN_PX)
         y = MARGIN_PX + r_pos * (BLOCK_PX + TEXT_H_PX + MARGIN_PX)
         
-        # 色块填充逻辑
         if mode == "RGB":
             fill = (int(item['RGB_R']), int(item['RGB_G']), int(item['RGB_B']))
         else:
             fill = (int(item['CMYK_C']*2.55), int(item['CMYK_M']*2.55), int(item['CMYK_Y']*2.55), int(item['CMYK_K']*2.55))
         
-        # 1. 绘制色块
-        draw.rectangle([x, y, x + BLOCK_PX, y + BLOCK_PX], fill=fill, outline=text_color, width=10)
+        # 1. 绘制色块（去掉边框 outline=None）
+        draw.rectangle([x, y, x + BLOCK_PX, y + BLOCK_PX], fill=fill, outline=None)
         
-        # 2. 绘制多行标注（让数值更醒目）
-        line1 = f"R:{int(item['RGB_R'])}"
-        line2 = f"G:{int(item['RGB_G'])}"
-        line3 = f"B:{int(item['RGB_B'])}"
+        # 2. 绘制标注（单行显示，R G B 数值一排开）
+        label = f"R:{int(item['RGB_R'])} G:{int(item['RGB_G'])} B:{int(item['RGB_B'])}"
         
-        # 依次向下排列，每行间隔 120 像素
-        draw.text((x, y + BLOCK_PX + 40), line1, fill=text_color, font=font)
-        draw.text((x, y + BLOCK_PX + 160), line2, fill=text_color, font=font)
-        draw.text((x, y + BLOCK_PX + 280), line3, fill=text_color, font=font)
+        # 计算文字居中（可选，这里先靠左对齐色块边缘）
+        draw.text((x, y + BLOCK_PX + 20), label, fill=text_color, font=font)
         
     buf = io.BytesIO()
     img.save(buf, format="TIFF", compression='tiff_lzw')
@@ -149,9 +143,9 @@ if 'data_list' in st.session_state:
         ca, cb = st.columns(2)
         with ca:
             st.download_button(
-                "📥 设计师核对校色用 (RGB 模式 - 巨大字体版)", 
+                "📥 设计师核对校色用 (RGB 模式)", 
                 create_tif_chart(selected_indices, "RGB"), 
-                "设计师校色_RGB_巨大字.tif", 
+                "设计师校色_RGB.tif", 
                 "image/tiff", 
                 use_container_width=True
             )
@@ -159,7 +153,7 @@ if 'data_list' in st.session_state:
             st.download_button(
                 "📥 工厂打样用 (CMYK 模式 - 包含RGB标注)", 
                 create_tif_chart(selected_indices, "CMYK"), 
-                "工厂打样_CMYK_巨大字.tif", 
+                "工厂打样_CMYK.tif", 
                 "image/tiff", 
                 use_container_width=True
             )
