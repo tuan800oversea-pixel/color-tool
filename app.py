@@ -19,7 +19,6 @@ def process_images(rgb_file, cmyk_file):
     if img_rgb.size != img_cmyk.size:
         img_cmyk = img_cmyk.resize(img_rgb.size, Image.Resampling.NEAREST)
     
-    # 缩小采样以保证性能
     small_size = (int(img_rgb.width * 0.2), int(img_rgb.height * 0.2))
     img_rgb_s = img_rgb.resize(small_size, Image.Resampling.NEAREST)
     img_cmyk_s = img_cmyk.resize(small_size, Image.Resampling.NEAREST)
@@ -39,7 +38,6 @@ def process_images(rgb_file, cmyk_file):
         c, m, y, k = Counter([tuple(x) for x in arr_cmyk[mask]]).most_common(1)[0][0]
         
         hex_design = '#{:02x}{:02x}{:02x}'.format(r, g, b)
-        # 近似转换用于预览
         r_p = round(255 * (1-c/255) * (1-k/255))
         g_p = round(255 * (1-m/255) * (1-k/255))
         b_p = round(255 * (1-y/255) * (1-k/255))
@@ -55,12 +53,12 @@ def process_images(rgb_file, cmyk_file):
         })
     return results
 
-# --- 核心绘图函数（比例优化版） ---
+# --- 核心绘图函数（极致比例版） ---
 def create_tif_chart(selected_items, mode="RGB"):
-    # 参数定义：BLOCK 为色块高度，TEXT_H_PX 为文字区域高度（约 0.5cm 在 300DPI 下约为 60px，这里给 100px 确保呼吸感）
+    # 参数设置：BLOCK 400px, 文字区域高度设为 120px，左右间距 80px
     BLOCK_PX = 400
-    TEXT_H_PX = 100  
-    MARGIN_PX = 60
+    TEXT_H_PX = 120  
+    MARGIN_PX = 80
     COLUMNS = 4
     num_items = len(selected_items)
     rows = math.ceil(num_items / COLUMNS)
@@ -68,23 +66,21 @@ def create_tif_chart(selected_items, mode="RGB"):
     canvas_w = (BLOCK_PX * COLUMNS) + (MARGIN_PX * (COLUMNS + 1))
     canvas_h = ((BLOCK_PX + TEXT_H_PX) * rows) + (MARGIN_PX * (rows + 1))
     
-    # 背景与文字颜色设置
+    # 配色方案：CMYK 模式采用单黑文字 (0,0,0,255)
     if mode == "RGB":
-        bg_color = (255, 255, 255)
-        text_color = (0, 0, 0)
+        bg_color, text_color = (255, 255, 255), (0, 0, 0)
     else:
-        bg_color = (0, 0, 0, 0)      # CMYK 模式下 0,0,0,0 为白纸
-        text_color = (0, 0, 0, 255)  # K100 纯黑文字
+        bg_color, text_color = (0, 0, 0, 0), (0, 0, 0, 255)
 
     img = Image.new(mode, (canvas_w, canvas_h), bg_color)
     draw = ImageDraw.Draw(img)
     
-    # 动态字号：色块宽 400px，字号设为 45px 可确保单行容纳 "R:255 G:255 B:255"
+    # 字号大幅增加至 65px，确保在 TIF 中醒目
     try:
-        font = ImageFont.truetype("arialbd.ttf", 45) # 优先使用粗体
+        font = ImageFont.truetype("arialbd.ttf", 65) 
     except:
         try:
-            font = ImageFont.truetype("arial.ttf", 45)
+            font = ImageFont.truetype("arial.ttf", 65)
         except:
             font = ImageFont.load_default()
     
@@ -93,7 +89,7 @@ def create_tif_chart(selected_items, mode="RGB"):
         x = MARGIN_PX + c_pos * (BLOCK_PX + MARGIN_PX)
         y = MARGIN_PX + r_pos * (BLOCK_PX + TEXT_H_PX + MARGIN_PX)
         
-        # 色块填充
+        # 确定色块填充
         if mode == "RGB":
             fill = (int(item['RGB_R']), int(item['RGB_G']), int(item['RGB_B']))
         else:
@@ -102,17 +98,18 @@ def create_tif_chart(selected_items, mode="RGB"):
         # 1. 绘制色块（取消边框）
         draw.rectangle([x, y, x + BLOCK_PX, y + BLOCK_PX], fill=fill, outline=None)
         
-        # 2. 绘制标注（确保单行显示且 CMYK 模式下也有 RGB 数值）
+        # 2. 绘制单行文字标注（RGB 原始数值）
         label = f"R:{int(item['RGB_R'])} G:{int(item['RGB_G'])} B:{int(item['RGB_B'])}"
         
-        # 文字坐标：色块底部留出 15px 间隙开始写字
-        draw.text((x, y + BLOCK_PX + 15), label, fill=text_color, font=font)
+        # 计算文字位置：让文字在色块下方稍微靠下的位置起始
+        # 文字距离色块底部 25 像素，确保不紧贴
+        draw.text((x, y + BLOCK_PX + 25), label, fill=text_color, font=font)
         
     buf = io.BytesIO()
     img.save(buf, format="TIFF", compression='tiff_lzw')
     return buf.getvalue()
 
-# --- 界面逻辑 ---
+# --- 界面 ---
 c1, c2 = st.columns(2)
 with c1: design_img = st.file_uploader("1. 上传设计师稿 (RGB)", type=['tif', 'tiff', 'jpg', 'png'])
 with c2: factory_img = st.file_uploader("2. 上传工厂稿 (CMYK)", type=['tif', 'tiff', 'jpg', 'png'])
@@ -124,12 +121,10 @@ if design_img and factory_img:
 
 if 'data_list' in st.session_state:
     st.subheader("🔍 色块校对与选择")
-    
-    if 'checks' not in st.session_state or len(st.session_state['checks']) != len(st.session_state['data_list']):
+    if 'checks' not in st.session_state:
         st.session_state['checks'] = [True] * len(st.session_state['data_list'])
 
     selected_indices = []
-    
     for i, row in enumerate(st.session_state['data_list']):
         col_chk, col_txt, col_pre1, col_pre2 = st.columns([1, 2, 4, 4])
         with col_chk:
@@ -137,30 +132,16 @@ if 'data_list' in st.session_state:
         with col_txt:
             st.write(f"颜色 {i+1}\n({row['占比']})")
         with col_pre1:
-            st.markdown(f'<div style="background-color:{row["设计图色块"]}; height:60px; border:2px solid #000; text-align:center; line-height:60px; color:white; font-weight:bold;">设计原色</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="background-color:{row["设计图色块"]}; height:60px; border:1px solid #000; text-align:center; line-height:60px; color:white; font-weight:bold;">设计原色</div>', unsafe_allow_html=True)
         with col_pre2:
-            st.markdown(f'<div style="background-color:{row["工厂稿色块"]}; height:60px; border:2px solid #000; text-align:center; line-height:60px; color:white; font-weight:bold;">工厂预览</div>', unsafe_allow_html=True)
-        
+            st.markdown(f'<div style="background-color:{row["工厂稿色块"]}; height:60px; border:1px solid #000; text-align:center; line-height:60px; color:white; font-weight:bold;">工厂预览</div>', unsafe_allow_html=True)
         if st.session_state['checks'][i]:
             selected_indices.append(row)
 
     st.divider()
-    
     if selected_indices:
         ca, cb = st.columns(2)
         with ca:
-            st.download_button(
-                "📥 下载：设计师核对校色用 (RGB 模式)", 
-                create_tif_chart(selected_indices, "RGB"), 
-                "设计师校色_RGB.tif", 
-                "image/tiff", 
-                use_container_width=True
-            )
+            st.download_button("📥 设计师核对校色用 (RGB 模式)", create_tif_chart(selected_indices, "RGB"), "设计师校色_RGB.tif", "image/tiff", use_container_width=True)
         with cb:
-            st.download_button(
-                "📥 下载：工厂打样用 (CMYK 模式)", 
-                create_tif_chart(selected_indices, "CMYK"), 
-                "工厂打样_CMYK.tif", 
-                "image/tiff", 
-                use_container_width=True
-            )
+            st.download_button("📥 工厂打样用 (CMYK 模式)", create_tif_chart(selected_indices, "CMYK"), "工厂打样_CMYK.tif", "image/tiff", use_container_width=True)
