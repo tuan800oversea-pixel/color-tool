@@ -8,7 +8,7 @@ import io
 import math
 
 # --- 页面配置 ---
-st.set_page_config(page_title="色彩管理工具 Pro (专业版)", layout="wide")
+st.set_page_config(page_title="色彩管理工具", layout="wide")
 st.title("🎨 色彩对照提取与色卡生成工具")
 
 # --- 颜色提取函数 ---
@@ -166,7 +166,7 @@ if 'data_list' in st.session_state:
         ca, cb = st.columns(2)
         with ca:
             st.download_button(
-                label="📥 下载设计师校色条 (RGB模式)",
+                label="📥 下载设计师校色块",
                 data=create_tif_chart(selected_indices, "RGB"),
                 file_name="Check_RGB_Strip.tif",
                 mime="image/tiff",
@@ -174,9 +174,10 @@ if 'data_list' in st.session_state:
             )
         with cb:
             st.download_button(
-                label="📥 下载工厂打样色条 (CMYK模式)",
+                label="📥 下载工厂打样色块",
                 data=create_tif_chart(selected_indices, "CMYK"),
                 file_name="Print_CMYK_Strip.tif",
                 mime="image/tiff",
                 use_container_width=True
             )
+
